@@ -142,5 +142,6 @@ def azure_translate(user_input, to_language):
                 print(f"Error Code:{exception.error.code}")
                 print(f"Message:{exception.error.message}")
 
+
 if __name__ =="__main__":
     app.run()

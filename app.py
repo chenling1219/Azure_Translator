@@ -119,10 +119,10 @@ def azure_translate(user_input, to_language):
         return "Please select a language"
     else:
         apikey = os.getenv("API_KEY")
-        endppoint = os.getenv("ENDPOINT")
+        endpoint = os.getenv("ENDPOINT")
         region = os.getenv("REGION")
         credential = AzureKeyCredential(apikey)
-        text_translatot = TextTranslationClient(credential=credential, endpoint=endppoint, region=region)
+        text_translatot = TextTranslationClient(credential=credential, endpoint=endpoint, region=region)
 
         try:
             response = text_translatot.translate(body=[user_input], to_language=[to_language])

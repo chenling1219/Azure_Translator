@@ -22,6 +22,9 @@ from linebot.v3.messaging import(
 )
 import os
 
+from dotenv import load_dotenv
+load_dotenv()
+
 #Azure Translation
 from azure.ai.translation.text import TextTranslationClient
 from azure.core.credentials import AzureKeyCredential

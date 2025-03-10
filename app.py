@@ -32,7 +32,7 @@ app = Flask(__name__)
 CHANNEL_ACCESS_TOKEN = os.getenv("CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET = os.getenv("CHANNEL_SECRET")
 
-handler = WebhookHandler(CHANNEL_SECRET)
+linehandler = WebhookHandler(CHANNEL_SECRET)
 configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
 
 @app.route("/callback", methods=['POST'])
@@ -45,12 +45,12 @@ def callback():
 
     # parse webhook body
     try:
-        handler.handle(body, signature)
+        linehandler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
     return 'OK'
 
-@handler.add(MessageEvent, message=TextMessageContent)      ##代碼轉換網址:https://learn.microsoft.com/zh-tw/azure/ai-services/translator/language-support
+@linehandler.add(MessageEvent, message=TextMessageContent)      ##代碼轉換網址:https://learn.microsoft.com/zh-tw/azure/ai-services/translator/language-support
 def handle_messsage(event):
     text = event.message.text
     quick_reply_items=[
@@ -90,7 +90,7 @@ def handle_messsage(event):
         )
     )])
 
-@handler.add(PostbackEvent)
+@linehandler.add(PostbackEvent)
 def handle_postback(event):
     postback_data = event.postback.data
     params = {}

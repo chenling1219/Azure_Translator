@@ -16,6 +16,7 @@ from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain.vectorstores import FAISS
 from langchain.chains import ConversationalRetrievalChain
 from dotenv import load_dotenv
+from langchain_community.document_loaders import PyPDFLoader
 
 # 初始化 Flask
 app = Flask(__name__)

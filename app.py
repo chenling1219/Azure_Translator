@@ -16,7 +16,6 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain.chains import ConversationalRetrievalChain
 from dotenv import load_dotenv
-from langchain_community.document_loaders import PyPDFLoader
 
 # 初始化 Flask
 app = Flask(__name__)
@@ -176,5 +175,6 @@ def handle_text_message(event):
         )
 
 if __name__ == "__main__":
+    # 僅用於本地測試，Vercel 不會執行此塊
     port = int(os.getenv('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=False)

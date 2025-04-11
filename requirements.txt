@@ -8,4 +8,4 @@ langchain-openai==0.2.0
 python-dotenv==1.0.1
 gunicorn==23.0.0
 langchain-community==0.3.0
-gunicorn>=22.0.0
+faiss-cpu==1.8.0  # 由於使用 FAISS，需添加此依賴

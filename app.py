@@ -1,146 +1,179 @@
-from flask import Flask, request, abort
-from linebot.v3 import (
-    WebhookHandler
-)
-from linebot.v3.exceptions import (
-    InvalidSignatureError
-)
-from linebot.v3.webhooks import (
-    MessageEvent,
-    TextMessageContent,
-    PostbackEvent
-)
-from linebot.v3.messaging import (
-    Configuration,
-    ApiClient,
-    MessagingApi,
-    ReplyMessageRequest,
-    TextMessage,
-    QuickReply,
-    QuickReplyItem,
-    PostbackAction
-)
 import os
-
-#Azure Translation
+import tempfile
+from flask import Flask, request, abort
+from linebot import LineBotApi, WebhookHandler
+from linebot.exceptions import InvalidSignatureError
+from linebot.models import (
+    MessageEvent, TextMessage, FileMessage, TextSendMessage
+)
+from PyPDF2 import PdfReader
+import requests
 from azure.ai.translation.text import TextTranslationClient
 from azure.core.credentials import AzureKeyCredential
-from azure.core.exceptions import HttpResponseError
+from langchain.document_loaders import PyPDFLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain.vectorstores import FAISS
+from langchain.chains import ConversationalRetrievalChain
+from dotenv import load_dotenv
 
+# 初始化 Flask
 app = Flask(__name__)
+load_dotenv()
 
-CHANNEL_ACCESS_TOKEN = os.getenv("CHANNEL_ACCESS_TOKEN")
-CHANNEL_SECRET = os.getenv("CHANNEL_SECRET")
+# Line Bot 配置
+line_bot_api = LineBotApi(os.getenv('CHANNEL_ACCESS_TOKEN'))
+handler = WebhookHandler(os.getenv('CHANNEL_SECRET'))
 
-linehandler = WebhookHandler(CHANNEL_SECRET)
-configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
+# Azure 翻譯配置
+translator_credential = AzureKeyCredential(os.getenv('API_KEY'))
+translator_client = TextTranslationClient(
+    endpoint=os.getenv('ENDPOINT'),
+    credential=translator_credential,
+    region=os.getenv('REGION')
+)
+
+# 暫存 PDF 文件的問題上下文
+user_context = {}
+
+def translate_text(text, target_language="zh-Hant"):
+    try:
+        result = translator_client.translate(
+            body=[text],
+            to_language=[target_language]
+        )
+        return result[0].translations[0].text
+    except Exception as e:
+        return f"翻譯錯誤: {str(e)}"
+
+def extract_pdf_text(pdf_path):
+    reader = PdfReader(pdf_path)
+    text = ""
+    for page in reader.pages:
+        text += page.extract_text() + "\n"
+    return text
+
+def create_pdf_qa_chain(pdf_path):
+    # 使用 LangChain 載入 PDF
+    loader = PyPDFLoader(pdf_path)
+    documents = loader.load()
+    
+    # 文本分割
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200
+    )
+    texts = text_splitter.split_documents(documents)
+    
+    # 創建向量儲存
+    embeddings = OpenAIEmbeddings()
+    vectorstore = FAISS.from_documents(texts, embeddings)
+    
+    # 創建對話鏈
+    llm = ChatOpenAI(model_name="gpt-4", temperature=0)
+    qa_chain = ConversationalRetrievalChain.from_llm(
+        llm,
+        vectorstore.as_retriever(),
+        return_source_documents=True
+    )
+    
+    return qa_chain
 
 @app.route("/callback", methods=['POST'])
 def callback():
-    # get X-Line-Signature header value
     signature = request.headers['X-Line-Signature']
-    # get request body as text
     body = request.get_data(as_text=True)
-    app.logger.info("Request body: " + body)
-
-    # parse webhook body
+    
     try:
-        linehandler.handle(body, signature)
+        handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
+    
     return 'OK'
 
-@linehandler.add(MessageEvent, message=TextMessageContent)      ##代碼轉換網址:https://learn.microsoft.com/zh-tw/azure/ai-services/translator/language-support
-def handle_messsage(event):
-    text = event.message.text
-    quick_reply_items=[
-        QuickReplyItem(
-            action=PostbackAction(
-                label="英文",
-                data=f"lang=en&text={text}",
-                display_text="英文"
-            )
-        ),
-        QuickReplyItem(
-            action=PostbackAction(
-                label="日文",
-                data=f"lang=ja&text={text}",
-                display_text="日文"
-            )
-        ),
-        QuickReplyItem(
-            action=PostbackAction(
-                label="繁體中文",
-                data=f"lang=zh-Hant&text={text}",
-                display_text="繁體中文"
-            )
-        ),
-        QuickReplyItem(
-            action=PostbackAction(
-                label="文言文",
-                data=f"lang=lzh&text={text}",
-                display_text="文言文"
-            )
-        )
-    ]
-    reply_message(event, [TextMessage(
-        text='請選擇要翻譯的語言:',
-        quick_reply=QuickReply(
-            items=quick_reply_items
-        )
-    )])
-
-@linehandler.add(PostbackEvent)
-def handle_postback(event):
-    postback_data = event.postback.data
-    params = {}
-    for param in postback_data.split("&"):
-        key, value = param.split("=")
-        params[key] = value
-    user_input = params.get("text")
-    language = params.get("lang")
-    result = azure_translate(user_input, language)
-    reply_message(event, [TextMessage(text=result if result else "No translation available")])
-
-# 回覆訊息
-def reply_message(event, messages):
-    with ApiClient(configuration) as api_client:
-        line_bot_api = MessagingApi(api_client)
+@handler.add(MessageEvent, message=FileMessage)
+def handle_file_message(event):
+    user_id = event.source.user_id
+    message_id = event.message.id
+    
+    # 獲取文件
+    message_content = line_bot_api.get_message_content(message_id)
+    file_extension = event.message.file_name.split('.')[-1].lower()
+    
+    if file_extension != 'pdf':
         line_bot_api.reply_message(
-            ReplyMessageRequest(
-                reply_token=event.reply_token,
-                messages=messages
-            )
+            event.reply_token,
+            TextSendMessage(text="請上傳 PDF 文件！")
         )
-        
-# 處理Azure翻譯
-def azure_translate(user_input, to_language):
-    if to_language == None:
-        return "Please select a language"
-    else:
-        apikey = os.getenv("API_KEY")
-        endpoint = os.getenv("ENDPOINT")
-        region = os.getenv("REGION")
-        credential = AzureKeyCredential(apikey)
-        text_translator = TextTranslationClient(credential=credential, endpoint=endpoint, region=region)
-        
-        try:
-            response = text_translator.translate(body=[user_input], to_language=[to_language])
-            print(response)
-            translation = response[0] if response else None
-            if translation:
-                detected_language = translation.detected_language
-                result = ''
-                if detected_language:
-                    print(f"偵測到輸入的語言: {detected_language.language} 信心分數: {detected_language.score}")
-                for translated_text in translation.translations:
-                    result += f"翻譯成: '{translated_text.to}'\n結果: '{translated_text.text}'"
-                return result
+        return
+    
+    # 儲存臨時文件
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+        temp_file.write(message_content.content)
+        temp_file_path = temp_file.name
+    
+    # 儲存上下文
+    user_context[user_id] = {
+        'pdf_path': temp_file_path,
+        'qa_chain': create_pdf_qa_chain(temp_file_path)
+    }
+    
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(
+            text="PDF 已接收！請選擇操作：\n1. 翻譯全文至繁體中文\n2. 提問關於PDF內容的問題"
+        )
+    )
 
-        except HttpResponseError as exception:
-            if exception.error is not None:
-                print(f"Error Code: {exception.error.code}")
-                print(f"Message: {exception.error.message}")
+@handler.add(MessageEvent, message=TextMessage)
+def handle_text_message(event):
+    user_id = event.source.user_id
+    text = event.message.text.strip()
+    
+    if user_id not in user_context:
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="請先上傳 PDF 文件！")
+        )
+        return
+    
+    pdf_path = user_context[user_id]['pdf_path']
+    
+    if text == "1":
+        # 翻譯全文
+        pdf_text = extract_pdf_text(pdf_path)
+        translated_text = translate_text(pdf_text)
+        
+        # 由於 Line 訊息長度限制，取前1000字
+        response = translated_text[:1000]
+        if len(translated_text) > 1000:
+            response += "...（內容過長，已截斷）"
+            
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=response)
+        )
+    
+    elif text.startswith("2"):
+        # 進入問答模式，等待具體問題
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="請輸入您關於 PDF 內容的問題！")
+        )
+    
+    else:
+        # 處理問答
+        qa_chain = user_context[user_id]['qa_chain']
+        result = qa_chain({
+            "question": text,
+            "chat_history": []
+        })
+        
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=result['answer'])
+        )
 
 if __name__ == "__main__":
-    app.run()
+    port = int(os.getenv('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)

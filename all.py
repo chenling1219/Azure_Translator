@@ -22,15 +22,15 @@ app = Flask(__name__)
 load_dotenv()
 
 # Line Bot 配置
-line_bot_api = LineBotApi(os.getenv('LINE_CHANNEL_ACCESS_TOKEN'))
-handler = WebhookHandler(os.getenv('LINE_CHANNEL_SECRET'))
+line_bot_api = LineBotApi(os.getenv('CHANNEL_ACCESS_TOKEN'))
+handler = WebhookHandler(os.getenv('CHANNEL_SECRET'))
 
 # Azure 翻譯配置
-translator_credential = AzureKeyCredential(os.getenv('AZURE_TRANSLATOR_KEY'))
+translator_credential = AzureKeyCredential(os.getenv('API_KEY'))
 translator_client = TextTranslationClient(
-    endpoint=os.getenv('AZURE_TRANSLATOR_ENDPOINT'),
+    endpoint=os.getenv('ENDPOINT'),
     credential=translator_credential,
-    region=os.getenv('AZURE_REGION')
+    region=os.getenv('REGION')
 )
 
 # 暫存 PDF 文件的問題上下文

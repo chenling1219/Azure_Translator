@@ -10,10 +10,10 @@ from PyPDF2 import PdfReader
 import requests
 from azure.ai.translation.text import TextTranslationClient
 from azure.core.credentials import AzureKeyCredential
-from langchain.document_loaders import PyPDFLoader
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.vectorstores import FAISS
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain.vectorstores import FAISS
 from langchain.chains import ConversationalRetrievalChain
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader
